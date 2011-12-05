@@ -1,0 +1,15 @@
+# cl-svm
+
+LIBSVM wrapper.
+
+## Usage
+
+lein deps
+lein compile
+lein repl
+
+## License
+
+Copyright (C) 2011 mattak
+
+Distributed under the Eclipse Public License, the same as Clojure.
