@@ -9,7 +9,9 @@
 
 ;; util
 ;;----------
-(defn is-type-oriented [type data]
+(defn is-type-oriented 
+  "define is this type oriented?"
+  [type data]
   (let [strtype (str type)
         datatype (str (.getClass data))
         orient (fn [s] (if-let [v (re-seq #"class \[*L?(.+?);?$" s)]
@@ -18,11 +20,15 @@
     (= (orient strtype) (orient datatype))
     ))
 
-(defn array-depth [elm]
+(defn array-depth
+  "return depth of java array"
+  [elm]
   (if-let [v (re-seq #"class (\[*)L?" (str (.getClass elm)))]
     (count (second (first v)))))
 
-(defn into-svmnode [data]
+(defn into-svmnode
+  "svmnode (java) to clojure vector in sequence"
+  [data]
   (let* [rows (count data)
          cols (count (first data))
          arr (make-array svm_node rows cols) idata (indexed data)]
@@ -72,10 +78,14 @@
 
 ;; load
 ;;----------
-(defn model-load [file]
+(defn model-load
+  "load model by svm_load_model"
+  [file]
   (svm/svm_load_model file))
 
-(defn node-load-bylines [lines]
+(defn node-load-bylines
+  "load svmnode by lines"
+  [lines]
   (for [line lines]
     (for [vals (re-seq #"\d+:\S+" line)]
       (let [elms (re-seq #"[^:]+" vals)]
@@ -100,7 +110,9 @@
           (aset darr idx val))))
     darr))
 
-(defn problem-load [#^String file]
+(defn problem-load
+  "load svm problem"
+  [#^String file]
 	(let [prob (svm_problem.) lines (lazy-input-line (tois file))]
 		(let [rows (count lines) cols (count (re-seq #"\d+:\S+" (first lines)))]
 			(dofield prob
@@ -108,6 +120,14 @@
 				(x (into-svmnode (node-load-bylines lines)))
 				(y (label-load-bylines lines))))
 		prob))
+
+
+;; save
+;;-------------
+(defn model-save
+  "save svm model"
+  [#^String file #^svm_model model]
+  (svm/svm_save_model file model))
 
 ;; parameter
 ;;-------------
@@ -184,13 +204,30 @@
           (= depth 2)
             (map #(proc %1) nodes))))
 
+(defn predict-test
+  "learned model is correct?
+   return summary of predicted result"
+  [#^svm_model model #^svm_problem prob]
+  (let* [result (predict model (.x prob))
+         total (count result)
+         correct (filter #(identity %) (map #(= %1 %2) result (.y prob)))
+         correct-cnt (count correct)]
+    {:total total
+     :correct correct-cnt
+     :wrong (- total correct-cnt)
+     :percent (double (/ correct-cnt total))}
+  ))
+
 ;; io
 ;;-------------
 ;(defn model-save)
 
 ;; data
 ;;-------------
-(defn random-problem [fnc size dim]
+(defn random-problem
+  "create random problem by user function.
+   datarange is [0,1]"
+  [fnc size dim]
   (let* [rnd (Random.)
          randdata (fn [idx]
                     (dofield (svm_node.)

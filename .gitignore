@@ -6,3 +6,12 @@
 /.lein-failures
 /checkouts
 /.lein-deps-sum
+
+*.sift
+*.surf
+*.orb
+*.word
+
+*.linear
+*.rbf
+
