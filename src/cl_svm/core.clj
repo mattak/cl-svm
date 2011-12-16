@@ -72,7 +72,7 @@
   [data]
   (let* [depth (array-depth data)
         seq-data (seq-node data)
-        svmstr (fn [node] (format "%d:%f" (first node) (second node)))
+        svmstr (fn [node] (format "%d:%e" (first node) (second node)))
         svmstr1 (fn [nodes] (str-join " " (map #(svmstr %) nodes)))
         svmstr2 (fn [nodess] (map #(svmstr1 %) nodess))]
     (cond (= depth 0) (svmstr seq-data)
@@ -225,6 +225,19 @@
     (reduce dissoc hash (keys diff))
     diff))
 
+(defn various-param
+  "create various paramter from difference of param
+   ex. (various-param (rbf-param) {:C (range 1 15) :gamma (range 0.05 0.15 0.01}))"
+  [base-param diffparam]
+  (if (< (count diffparam) 1)
+      (list base-param)
+      (let [ks (keys diffparam)
+            fk (first ks)
+            rk (dissoc diffparam fk)
+            result (various-param base-param rk)]
+        (for [vs (fk diffparam) res result]
+          (change-param res {fk vs})))))
+
 (defn default-param
   []
   (get-hashed-param
@@ -253,9 +266,14 @@
 (defn train-best
   "get best trained parameter"
   [paramlst #^svm_problem prob]
-  (for [param paramlst]
-    (let [model (train param prob)]
-      (assoc (predict-summary model prob) :model model))))
+  (let
+    [vs (for [param paramlst]
+          (let [model (train param prob)]
+            (assoc (predict-summary model prob) :model model :param param)))
+     cmp (fn [f1 f2]
+            (let [v1 (:percent f1) v2 (:percent f2)]
+              (if (< v1 v2) 1 -1)))]
+    (sort cmp vs)))
 
 ;; test
 ;;-------------
@@ -274,14 +292,15 @@
           (= depth 2)
             (map #(svm/svm_predict model %) nodes))))
 
-(defn predict-problem
-  "predict probability"
+(defn predict-probability
+  "predict probability.
+   return value is (label class1_probability class2_probability ...)"
   [model nodes]
-  (let* [estimates (double-array (.nr_class model))
-         depth (array-depth nodes)
+  (let* [depth (array-depth nodes)
+         estimates (double-array (.nr_class model))
          proc (fn [node]
-                (let [v (svm/svm_predict_probability model node estimates)]
-                  [v (vec estimates)]))]
+                 (let [v (svm/svm_predict_probability model node estimates)]
+                    (conj (seq estimates) v)))]
     (cond (= depth 1)
             (proc nodes)
           (= depth 2)
@@ -291,9 +310,9 @@
   "learned model is correct?
    return summary of predicted result"
   [#^svm_model model #^svm_problem prob]
-  (let* [result (predict model (.x prob))
+  (let* [result (predict-probability model (.x prob))
          total (count result)
-         correct (filter #(identity %) (map #(= %1 %2) result (.y prob)))
+         correct (filter #(identity %) (map #(= (first %1) %2) result (.y prob)))
          correct-cnt (count correct)]
     {:total total
      :correct correct-cnt
