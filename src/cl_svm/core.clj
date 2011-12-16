@@ -165,7 +165,7 @@
 
 ;; parameter
 ;;-------------
-(defn default-param
+(defn libsvm-default-param
   "svm default parameter : RBF, C_SVC"
   []
 	(let [p (svm_parameter.)]
@@ -187,26 +187,75 @@
 			(weight nil)
 		)))
 
+(defmacro get-hashed-param
+  [param]
+  (let* [symbs '(svm_type kernel_type degree gamma coef0
+                 nu cache_size C eps shrinking probability
+                 nr_weight weight_label weight)
+         gparam (gensym)
+         keys (apply vector (map #(keyword %) symbs))]
+    `(let [~gparam ~param]
+        (reduce
+            #(assoc %1 (first %2) (second %2))
+            {}
+            (map vector
+                ~keys
+                ~(apply vector (map #(list '. gparam %) symbs)))))))
+
+(defmacro set-hashed-param
+  "hash to libsvm/svm_parameter"
+  [hashparam]
+  (let [symbs '(svm_type kernel_type degree gamma coef0
+                nu cache_size C eps shrinking probability 
+                nr_weight weight_label weight)
+        ghash (gensym)
+        keys (apply vector (map #(keyword %) symbs))]
+    `(let
+        [~ghash ~hashparam]
+        (dofield
+          (libsvm-default-param)
+          ~@(map #(list %1 (list %2 hashparam))
+                symbs
+                keys)))))
+
+(defn change-param
+  "change parameter to new"
+  [hash diff]
+  (reduce #(assoc %1 (first %2) (second %2))
+    (reduce dissoc hash (keys diff))
+    diff))
+
+(defn default-param
+  []
+  (get-hashed-param
+    (libsvm-default-param)))
+
 (defn rbf-param
   "RBF kernel svm parameter"
   []
-  (let [p (default-param)]
-    (dofield p
-      (kernel_type svm_parameter/RBF))))
+  (change-param (default-param) {:kernel_type svm_parameter/RBF}))
 
 (defn linear-param
   "linear kernel svm parameter"
   []
-  (let [p (default-param)]
-    (dofield p
-      (kernel_type svm_parameter/LINEAR))))
+  (change-param (default-param) {:kernel_type svm_parameter/LINEAR}))
+
 
 ;; learn
 ;;-------------
 (defn train
 	"svm trainner"
-  [#^svm_parameter param #^svm_problem prob]
-    (svm/svm_train prob param))
+  [param_hash #^svm_problem prob]
+  (svm/svm_train prob (set-hashed-param param_hash)))
+
+(declare predict-summary)
+
+(defn train-best
+  "get best trained parameter"
+  [paramlst #^svm_problem prob]
+  (for [param paramlst]
+    (let [model (train param prob)]
+      (assoc (predict-summary model prob) :model model))))
 
 ;; test
 ;;-------------
