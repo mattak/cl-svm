@@ -9,6 +9,17 @@
 
 ;; util
 ;;----------
+(defmacro node-value
+  "a little bit shorten accessor for svmnode[pos].value"
+  [node pos]
+  `(.value (aget ~node ~pos)))
+
+(defmacro node-index
+  "a little bit shorten accessor for svmnode[pos].index"
+  [node pos]
+  `(.index (aget ~node ~pos)))
+
+
 (defn is-type-oriented 
   "define is this type oriented?"
   [type data]
@@ -26,7 +37,7 @@
   (if-let [v (re-seq #"class (\[*)L?" (str (.getClass elm)))]
     (count (second (first v)))))
 
-(defn into-svmnode
+(defn into-node
   "svmnode (java) to clojure vector in sequence"
   [data]
   (let* [rows (count data)
@@ -42,7 +53,7 @@
                 (value val)))))))
     arr))
 
-(defn seq-svmnode
+(defn seq-node
   "array to sequence svm node data"
   [data]
   (let [type (.getClass data)]
@@ -50,17 +61,17 @@
         (= type svm_node)
           (vector (.index data) (.value data))
         (= type (.getClass (make-array svm_node 0)))
-          (map #(seq-svmnode %) (seq data))
+          (map #(seq-node %) (seq data))
         (= type (.getClass (make-array svm_node 0 0)))
-          (map #(seq-svmnode %) (seq data))
+          (map #(seq-node %) (seq data))
         true false
      )))
 
-(defn str-svmnode
+(defn str-node
   "node to libsvm format"
   [data]
   (let* [depth (array-depth data)
-        seq-data (seq-svmnode data)
+        seq-data (seq-node data)
         svmstr (fn [node] (format "%d:%f" (first node) (second node)))
         svmstr1 (fn [nodes] (str-join " " (map #(svmstr %) nodes)))
         svmstr2 (fn [nodess] (map #(svmstr1 %) nodess))]
@@ -69,21 +80,26 @@
           (= depth 2) (svmstr2 seq-data)
           true nil)))
 
-(defn pprint-problem
-  "pretty print svm problem"
+(defn str-label
+  "to string label"
+  [label]
+  (map #(str (int %)) label))
+
+(defn str-problem
+  "to string svm problem"
   [prob]
-  (let [nodestr (str-svmnode (. prob x))
+  (let [nodestr (str-node (. prob x))
         labelstr (map #(str (int %)) (. prob y))]
-    (println (str-join "\n" (map #(str %1 " " %2) labelstr nodestr)))))
+    (map #(str %1 " " %2) labelstr nodestr)))
 
 ;; load
 ;;----------
-(defn model-load
+(defn load-model
   "load model by svm_load_model"
   [file]
   (svm/svm_load_model file))
 
-(defn node-load-bylines
+(defn load-node-bylines
   "load svmnode by lines"
   [lines]
   (for [line lines]
@@ -93,12 +109,12 @@
           (Double/parseDouble val)
           )))))
 
-(defn node-load
+(defn load-node
 	"svm node load. (<svm_node_array> ...)"
   [#^String file]
-  (into-svmnode (node-load-bylines (lazy-input-line (tois file)))))
+  (into-node (load-node-bylines (lazy-input-line (tois file)))))
 
-(defn label-load-bylines
+(defn load-label-bylines
   "svm label load"
   [lines]
   (let* [darr (double-array (count lines))
@@ -110,24 +126,42 @@
           (aset darr idx val))))
     darr))
 
-(defn problem-load
+(defn load-problem
   "load svm problem"
   [#^String file]
 	(let [prob (svm_problem.) lines (lazy-input-line (tois file))]
 		(let [rows (count lines) cols (count (re-seq #"\d+:\S+" (first lines)))]
 			(dofield prob
 				(l rows)
-				(x (into-svmnode (node-load-bylines lines)))
-				(y (label-load-bylines lines))))
+				(x (into-node (load-node-bylines lines)))
+				(y (load-label-bylines lines))))
 		prob))
 
 
 ;; save
 ;;-------------
-(defn model-save
+(defn save-model
   "save svm model"
   [#^String file #^svm_model model]
   (svm/svm_save_model file model))
+
+(defn save-problem
+  "save problem"
+  [#^String filepath #^svm_problem prob]
+  (str2file filepath (str-join "\n" (str-problem prob))))
+
+(defn save-label
+  "save parameter of problem"
+  [#^String filepath #^svm_problem prob]
+  (str2file filepath (str-join "\n" (str-label (.y prob)))))
+
+(defn save-node
+  "save svmnode"
+  [#^String filepath prob-or-node]
+  (let [node (if (= (class prob-or-node) svm_problem)
+                (seq-node (. prob-or-node x))
+                (seq-node prob-or-node))]
+      (str2file (str-join "\n" (seq-node node)))))
 
 ;; parameter
 ;;-------------
@@ -179,7 +213,7 @@
 (defn predict-file
   "predict testfile"
   [model testfile]
-	(let [nodeslist (node-load testfile)]
+	(let [nodeslist (load-node testfile)]
     (map #(svm/svm_predict model %) nodeslist)))
 
 (defn predict
@@ -191,7 +225,7 @@
           (= depth 2)
             (map #(svm/svm_predict model %) nodes))))
 
-(defn predict-prob
+(defn predict-problem
   "predict probability"
   [model nodes]
   (let* [estimates (double-array (.nr_class model))
@@ -204,7 +238,7 @@
           (= depth 2)
             (map #(proc %1) nodes))))
 
-(defn predict-test
+(defn predict-summary
   "learned model is correct?
    return summary of predicted result"
   [#^svm_model model #^svm_problem prob]
@@ -217,10 +251,6 @@
      :wrong (- total correct-cnt)
      :percent (double (/ correct-cnt total))}
   ))
-
-;; io
-;;-------------
-;(defn model-save)
 
 ;; data
 ;;-------------
